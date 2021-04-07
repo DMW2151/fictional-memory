@@ -22,13 +22,13 @@ logging.basicConfig(
     format='%(asctime)s-%(levelname)s-%(message)s'
 )
 
-console = logging.StreamHandler(sys.stdout)
-console.setLevel(logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 def log_handler(bytestream, level=None):
     for logline in bytestream.split(b'\n'):
         # TODO: Wouldn't a switch statement be nice? Implement pseudo-switch!
-        logging.info(logline)
+        logger.info(logline)
 
 def parse_api_gateway_event(event_request):
     """
@@ -41,7 +41,7 @@ def parse_api_gateway_event(event_request):
     # Extract POST body from event request
     event = event_request.get('body', dict())
 
-    logging.info(event)
+    logger.info(event)
 
     path, layername = event.get('path'), event.get('layername')
     return path, layername
@@ -83,7 +83,7 @@ def s3_put_pgdump_object(sto, layername):
 
     ## ErrorCheck Here!
     response = client.put_object(
-        Bucket='dmw2151-tileserver',
+        Bucket=os.environ.get('S3_DEFAULT_BUCKET'),
         Body=s_out, 
         Key=f'test/{layername}.dump'
     )
@@ -114,14 +114,13 @@ def handler(event, context):
     err = wget_target_shp(path)
 
     if err:
-        logging.error(err)
+        log_handler(err)
         return {
             'statusCode': 500,
             'body': json.dumps(err.__str__()),
         }
 
-    # Transform /tmp/layer.zip to a PG_DUMP file and push the gzip'd result
-    # to S3
+    # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
     try:
         dlps = subprocess.Popen(
             ['ogr2ogr',
@@ -138,7 +137,7 @@ def handler(event, context):
 
     # Catch Subprocess Call Errors
     except subprocess.CalledProcessError as err:
-        logging.error(err)
+        log_handler(err)
         return {
                 'statusCode': 500,
                 'body': json.dumps(err.__str__()),
