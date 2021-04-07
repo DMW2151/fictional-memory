@@ -11,7 +11,6 @@
 import json
 import logging
 import gzip
-import sys
 import boto3
 import os
 import subprocess
