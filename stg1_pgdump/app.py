@@ -50,32 +50,6 @@ def parse_api_gateway_event(event_request):
     return path, layername
 
 
-def wget_target_shp(path):
-    """
-    Call wget w. subprocess && download the target to /tmp/layer.zip
-
-    NOTE: Test this w. many concurrent invocations!! Perhaps replace w.
-    a generated tmpfile for each innvocation.
-    """
-
-    try:
-        proc = subprocess.Popen(
-            ["wget", path, "--verbose", "-O", "/tmp/layer.zip"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        proc.wait()
-        stdout, stderr = proc.communicate()
-    
-        log_handler(stdout)
-        log_handler(stderr)
-        return None
-
-    except subprocess.CalledProcessError as err:
-        return err
-
-
 def s3_put_pgdump_object(sto, layername):
 
     ## TODO: Error Check Here!!!
@@ -120,16 +94,33 @@ def handler(event, context):
 
     # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
     try:
-        dlps = subprocess.Popen(
-            ['ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
-                '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
-                '-nln',     layername,
-                '-t_srs',   'EPSG:4326',
-                '-nlt',     'PROMOTE_TO_MULTI'
-            ],
+        # Call wget w. subprocess && download the target to /tmp/layer.zip
+        # NOTE: Test this w. many concurrent invocations!! Perhaps replace w.
+        # a generated tmpfile for each innvocation.
+        
+        proc = subprocess.Popen(
+            ["wget", path, "--verbose", "-O", "-"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        
+    
+        dlps = subprocess.Popen([
+                'ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
+                '-f', 'PGDump' , '/vsistdout/', '-',
+                '-nln',     layername,
+                '-t_srs',   'EPSG:4326',
+                '-nlt',     'PROMOTE_TO_MULTI'],
+            stdin=proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        
+        _, stderr = proc.communicate()
+        log_handler(stderr)
+        
+        _, stderr = dlps.communicate()
+        log_handler(stderr)
         
     # Catch Subprocess Call Errors
     except subprocess.CalledProcessError as err:
