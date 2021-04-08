@@ -3,32 +3,37 @@
 # 
 # {
 #     "body": {
-#       "layername": "Idaho-Places",
-#       "path": "https://www2.census.gov/geo/tiger/TIGER2020/PLACE/tl_2020_20_place.zip"
+#       "layername": "Wy-Places",
+#       "path": "https://www2.census.gov/geo/tiger/TIGER2020/PLACE/tl_2020_56_place.zip"
 #     }
 # }
 
 import json
 import logging
 import gzip
-import sys
 import boto3
 import os
 import subprocess
 
+# Initialize S3 Connection
+client = boto3.client('s3')
+
 # Initialize Loggers
 logging.basicConfig(
-    level=logging.DEBUG,
     format='%(asctime)s-%(levelname)s-%(message)s'
 )
 
-console = logging.StreamHandler(sys.stdout)
-console.setLevel(logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 def log_handler(bytestream, level=None):
+    if bytestream == b'':
+        logger.info(b'Placeholder')
+        return
+    
     for logline in bytestream.split(b'\n'):
         # TODO: Wouldn't a switch statement be nice? Implement pseudo-switch!
-        logging.info(logline)
+        logger.info(logline)
 
 def parse_api_gateway_event(event_request):
     """
@@ -40,8 +45,6 @@ def parse_api_gateway_event(event_request):
 
     # Extract POST body from event request
     event = event_request.get('body', dict())
-
-    logging.info(event)
 
     path, layername = event.get('path'), event.get('layername')
     return path, layername
@@ -59,31 +62,27 @@ def wget_target_shp(path):
         proc = subprocess.Popen(
             ["wget", path, "--verbose", "-O", "/tmp/layer.zip"],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
         proc.wait()
-        stdout, _ = proc.communicate()
-
+        stdout, stderr = proc.communicate()
+    
         log_handler(stdout)
+        log_handler(stderr)
         return None
 
     except subprocess.CalledProcessError as err:
-    # NOTE: Not sure what case this would be called in proc.communicate(),
-    # should catch all errors and pipe to subprocess.PIPE
         return err
 
 
 def s3_put_pgdump_object(sto, layername):
 
-    ## ErrorCheck Here!
+    ## TODO: Error Check Here!!!
     s_out = gzip.compress(sto)
 
-    ## ErrorCheck Here!
-    client = boto3.client('s3')
-
-    ## ErrorCheck Here!
     response = client.put_object(
-        Bucket='dmw2151-tileserver',
+        Bucket=os.environ.get('S3_DEFAULT_BUCKET'),
         Body=s_out, 
         Key=f'test/{layername}.dump'
     )
@@ -112,33 +111,29 @@ def handler(event, context):
     # Download target data to /tmp/layer.zip, any subprocess error should be 
     # caught here, return as 500 ERROR...
     err = wget_target_shp(path)
-
     if err:
-        logging.error(err)
+        log_handler(err)
         return {
             'statusCode': 500,
             'body': json.dumps(err.__str__()),
         }
 
-    # Transform /tmp/layer.zip to a PG_DUMP file and push the gzip'd result
-    # to S3
+    # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
     try:
         dlps = subprocess.Popen(
-            ['ogr2ogr',
-                '-overwrite',
-                '--config', 'PG_USE_COPY',  'YES',
+            ['ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
                 '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
                 '-nln',     layername,
-                '-lco',     'OVERWRITE=yes',
                 '-t_srs',   'EPSG:4326',
                 '-nlt',     'PROMOTE_TO_MULTI'
             ],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-
+        
     # Catch Subprocess Call Errors
     except subprocess.CalledProcessError as err:
-        logging.error(err)
+        log_handler(err)
         return {
                 'statusCode': 500,
                 'body': json.dumps(err.__str__()),
@@ -147,10 +142,8 @@ def handler(event, context):
     # Write to S3 to Avoid NAT
     sto, _ = dlps.communicate()
     s3_put_pgdump_object(sto, layername)
-
+    
     return {
             'statusCode': 200,
-            'body': json.dumps({
-                's3_path': f'{os.environ.get('S3_DEFAULT_BUCKET')}/test/{layername}.dump',  
-            }),
+            'body': json.dumps({ 's3_path': f"{os.environ.get('S3_DEFAULT_BUCKET')}/test/{layername}.dump"}),
         }

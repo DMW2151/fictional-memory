@@ -2,7 +2,7 @@
 
 # Build a GDAL + OGR2OGR Lambda Layer: Built on Amazon Linux using remotepixel/amazonlinux-gdal
 # which contains the required utilities pre-instealled instead of building the binaries from source
-# docker run -ti --volume $(pwd)/gdal:/gdal remotepixel/amazonlinux-gdal bash -c './layers /build_gdal.sh'
+# docker run -ti --volume $(pwd)/gdal:/gdal remotepixel/amazonlinux-gdal --volume $(pwd)/layers/:/layers/ amazonlinux bash -c './layers /build_gdal.sh'
 
 # Copy GDAL, OGR2OGR, and OGRINFO Binaries -> /gdal/bin
 mkdir -p /gdal/bin /gdal/lib /gdal/share &&\

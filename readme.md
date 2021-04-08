@@ -28,11 +28,13 @@ The layers used in this project are built in Amazon Linux Docker containers, see
 Depends on having an existing role, it is assumed this role has access to CloudWatch, S3, etc. Supplement `Variables` with required environment vars.
 
 ```bash
-zip deployment.zip ./app.py
+cd stg1_pgdump &&\ zip stg1_deployment.zip ./app.py
+
+cd stg2_topg &&\ zip stg2_deployment.zip ./app.py
 
 aws lambda create-function \
     --function-name loader \
-    --zip-file fileb://deployment.zip \
+    --zip-file fileb://stg1_deployment.zip \
     --handler app.handler \
     --runtime python3.8 \
     --timeout 30 \
@@ -45,7 +47,7 @@ aws lambda create-function \
 
 - [Stack Overflow Post on VSI Handlers](https://gis.stackexchange.com/questions/122082/piping-data-to-ogr2ogr)
 - [ogr2ogr VSI Docs](https://gdal.org/user/virtual_file_systems.html)
-- [CentOS GDAL, ogr2ogr, proj Install Guide](9https://gist.github.com/abelcallejo/e75eb93d73db6f163b076d0232fc7d7e) - Not used, prefer `remotepixel/amazonlinux-gdal` container
+- Not used, prefer `remotepixel/amazonlinux-gdal` container [CentOS GDAL, ogr2ogr, proj Install Guide](9https://gist.github.com/abelcallejo/e75eb93d73db6f163b076d0232fc7d7e) 
 - [Docker Container remotepixel/amazonlinux-gdal](https://hub.docker.com/r/remotepixel/amazonlinux-gdal)
 - [DevelopmentSeed GeoLambda - Good Reference on Building Layers](https://github.com/developmentseed/geolambda/blob/master/bin/package.sh)
 
