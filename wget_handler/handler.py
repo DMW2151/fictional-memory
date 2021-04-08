@@ -14,9 +14,13 @@ import gzip
 import boto3
 import os
 import subprocess
+import botocore.config
 
 # Initialize S3 Connection
-client = boto3.client('s3')
+client = boto3.client(
+    's3', os.environ.get('AWS_DEFAULT_REGION'), 
+    config=botocore.config.Config(s3={'addressing_style':'path'})
+)
 
 # Initialize Loggers
 logging.basicConfig(
@@ -27,7 +31,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 def log_handler(bytestream, level=None):
-    if bytestream == b'':
+    if (bytestream == b'') or (bytestream is None):
         logger.info(b'Placeholder')
         return
     
@@ -82,57 +86,55 @@ def handler(event, context):
             'body': json.dumps('Expect Values for `Path` and `Layername'),
         }
 
-    # Download target data to /tmp/layer.zip, any subprocess error should be 
-    # caught here, return as 500 ERROR...
-    err = wget_target_shp(path)
-    if err:
-        log_handler(err)
-        return {
-            'statusCode': 500,
-            'body': json.dumps(err.__str__()),
-        }
-
     # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
-    try:
-        # Call wget w. subprocess && download the target to /tmp/layer.zip
-        # NOTE: Test this w. many concurrent invocations!! Perhaps replace w.
-        # a generated tmpfile for each innvocation.
-        
-        proc = subprocess.Popen(
-            ["wget", path, "--verbose", "-O", "-"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        
     
+    # Call wget w. subprocess && download the target to /tmp/layer.zip
+    # NOTE: Test this w. many concurrent invocations!! Perhaps replace w.
+    # a generated tmpfile for each innvocation.
+    
+    proc = subprocess.Popen(
+        ["wget", path, "--verbose", "-O", "/tmp/layer.zip"],
+        stdout=subprocess.PIPE,
+    )
+    
+    try:
+        # NOTE: /vsistdin/ should work here, not sure if wrong version of 
+        # ogr2ogr!?
         dlps = subprocess.Popen([
                 'ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
-                '-f', 'PGDump' , '/vsistdout/', '-',
+                '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
                 '-nln',     layername,
                 '-t_srs',   'EPSG:4326',
                 '-nlt',     'PROMOTE_TO_MULTI'],
             stdin=proc.stdout,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
         )
-        
+
         _, stderr = proc.communicate()
-        log_handler(stderr)
-        
-        _, stderr = dlps.communicate()
-        log_handler(stderr)
-        
-    # Catch Subprocess Call Errors
-    except subprocess.CalledProcessError as err:
-        log_handler(err)
-        return {
+    
+        # Catch Subprocess Call Errors (?), Can this even hapen??
+        if stderr:
+            log_handler(stderr)
+            return {
                 'statusCode': 500,
-                'body': json.dumps(err.__str__()),
+                'body': json.dumps(stderr.__str__()),
             }
 
-    # Write to S3 to Avoid NAT
-    sto, _ = dlps.communicate()
-    s3_put_pgdump_object(sto, layername)
+    except subprocess.CalledProcessError as err:
+        log_handler(err.__str__().encode('utf8'))
+        return {
+            'statusCode': 500,
+            'body': json.dumps(err.__str__()),
+        }
+            
+    dlsto, stderr = dlps.communicate()
+    s3_put_pgdump_object(dlsto, layername)
+    if stderr:
+        log_handler(stderr)
+        return {
+            'statusCode': 500,
+            'body': json.dumps(stderr.__str__()),
+        }
     
     return {
             'statusCode': 200,
