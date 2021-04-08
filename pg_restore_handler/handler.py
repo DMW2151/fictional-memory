@@ -1,12 +1,10 @@
 # Lambda Function that's triggered on S3 Upload; Takes a pg_dump file and pushes to DB...
 
 import gzip
-import io
 import json
 import logging
 import os
 import subprocess
-import sys
 import urllib.parse
 
 import botocore.config
