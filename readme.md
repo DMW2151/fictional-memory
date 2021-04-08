@@ -28,11 +28,13 @@ The layers used in this project are built in Amazon Linux Docker containers, see
 Depends on having an existing role, it is assumed this role has access to CloudWatch, S3, etc. Supplement `Variables` with required environment vars.
 
 ```bash
-zip deployment.zip ./app.py
+cd stg1_pgdump &&\ zip stg1_deployment.zip ./app.py
+
+cd stg2_topg &&\ zip stg2_deployment.zip ./app.py
 
 aws lambda create-function \
     --function-name loader \
-    --zip-file fileb://deployment.zip \
+    --zip-file fileb://stg1_deployment.zip \
     --handler app.handler \
     --runtime python3.8 \
     --timeout 30 \

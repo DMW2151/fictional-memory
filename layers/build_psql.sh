@@ -1,7 +1,7 @@
 #! bin/sh
 
 # Build a PSQL Client Lambda Layer: Built on Amazon Linux
-# docker run -ti --volume $(pwd)/pgclient:/pgclient amazonlinux bash -c './layers/build_psql.sh'
+# docker run -ti --volume $(pwd)/pgclient:/pgclient --volume $(pwd)/layers/:/layers/ amazonlinux bash -c './layers/build_psql.sh'
 
 sudo amazon-linux-extras install postgresql10
 
