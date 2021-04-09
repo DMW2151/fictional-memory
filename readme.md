@@ -1,4 +1,4 @@
-# GDAL on AWS Lambda
+# GDAL -> PostGIS on AWS Lambda
 
 Testing out AWS Lambda with GDAL's VSI Handlers. VSI handlers in GDAL allow for streaming data between commands and locations. A neat use case for these VSI handlers would be to wget/curl a file on the web, pipe the result through `ogr2ogr` and stream the content directly into a database without saving intermediate files.
 
@@ -23,7 +23,52 @@ The layers used in this project are built in Amazon Linux Docker containers, see
 └── build_utils.sh
 ```
 
-## Lambda Deployment
+```bash
+# Build GDAL Layer - Contains Ogr2Ogr, GDAL, OgrInfo
+# required for download handler
+docker run --rm \
+    --volume $(pwd)/built_layers/gdal:/gdal \
+    --volume $(pwd)/layers/:/layers/ \
+    remotepixel/amazonlinux-gdal \
+    bash /layers/build_gdal.sh
+```
+
+```bash
+# Build PSQL Layer - Contains PSQL
+# required for restore layer
+docker run --rm \
+    --volume $(pwd)/built_layers/pgclient:/pgclient \
+    --volume $(pwd)/layers/:/layers/ \
+    amazonlinux \
+    bash /layers/build_psql.sh
+```
+
+```bash
+# Build wget Layer
+# mostly didactic, required for download handler
+docker run --rm \
+    --volume $(pwd)/built_layers/utils:/utils \
+    --volume $(pwd)/layers/:/layers/ \
+    amazonlinux \
+    bash /layers/build_utils.sh
+```
+
+```bash
+# Build AWS Python deps Layer
+# mostly didactic, required for both handlers, ideally using
+# awscli, boto3 included for other runtimes...
+docker run --rm \
+    --volume $(pwd)/built_layers/pyutils:/pyutils \
+    --volume $(pwd)/layers/:/layers/ \
+    amazonlinux \
+    bash /layers/build_python_deps.sh
+```
+
+
+
+## Testing Locally with Docker
+
+## [WIP] Lambda Deployment
 
 Depends on having an existing role, it is assumed this role has access to CloudWatch, S3, etc. Supplement `Variables` with required environment vars.
 

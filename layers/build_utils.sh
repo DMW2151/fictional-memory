@@ -1,8 +1,6 @@
 #! bin/sh
 
-# Build a wget Lambda Layer: Built on Amazon Linux
-# docker run -ti --volume $(pwd)/utils:/utils amazonlinux --volume $(pwd)/layers/:/layers/ bash -c './layers/build_utils.sh'
-    
+# Build a wget Lambda Layer: Built on Amazon Linux    
 yum -y update &&\
     yum install -y \
         wget \
@@ -18,7 +16,8 @@ mkdir -p /utils/lib &&\
 
 strip /utils/lib/* || true
 
-cp /usr/bin/wget /utils/bin/ 
+mkdir -p /utils/bin/ &&\
+    cp /usr/bin/wget /utils/bin/ 
 
 cd /utils/ &&\
     zip --symlinks -ruq lambda-deploy.zip ./

@@ -25,13 +25,18 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 def log_handler(bytestream, level=None):
+    """ Logging utility, splits logstreams """
+    if (bytestream == b'') or (bytestream is None):
+        logger.info(b'Placeholder')
+        return
+    
     for logline in bytestream.split(b'\n'):
         # TODO: Wouldn't a switch statement be nice? Implement pseudo-switch!
-        logger.error(logline)
+        logger.info(logline)
 
 def parse_s3_trigger_event(event):
     """
-    Parse content of `event` to get bucket name for S3 download
+    Parse content of  AWS S3 Event to get key and bucket name for S3 download
     """
     bucket = event['Records'][0]['s3']['bucket']['name']
     
@@ -49,28 +54,35 @@ def parse_s3_trigger_event(event):
 
 def write_dump_to_tmpfile(bucket, key):
     """
-    Pipe S3 -> Stdout
+    Download S3 pg_dump file and save to /tmp/
     """
 
-    obj = s3.Object(
-        bucket_name=bucket, key=key
-    )
+    ## Access S3 File; ensure exists before read
+    try:
+        obj = s3.Object(
+            bucket_name=bucket, key=key
+        )
+        b = obj.get()["Body"]
+    ## Placeholder for errors in AWS S3 Get/Credential Errors, etc.
+     except: 
+        raise NotImplementedError
 
-    with open("/tmp/f1.txt", 'wb+') as fd:
+    # Write results from s3 -> /tmp/xxx.sql; decompressing
+    # while writing, 
+    with open("/tmp/layer.sql", 'wb+') as fd:
         try:
-            fd.write(
-                gzip.decompress(
-                    obj.get()["Body"].read()
-                )
-            )
+            fd.write(gzip.decompress(b.read()))
 
-        except: # Placeholder...
+        # Placeholder for errors, might run into invalid 
+        # gzip file, file might not be available, etc...
+        except: 
             raise NotImplementedError
 
 
 def handler(event, context):
     """
-    Wrapper for ingesting pg_dump file from S3 -> EC2 
+    Wrapper for ingesting pg_dump file from S3 -> EC2/RDS
+
     - event: Json formatted data for function to process
     - context: AWS Lambda Context, required for handler func, this object
         provides methods and properties that provide information about
@@ -91,23 +103,26 @@ def handler(event, context):
     # aws s3 cp s3://sample_bucket/test/sample.dump - |\
     #   gunzip - |\
     #   psql -h $PG_HOST -d $PG_DATABASE -U $PG_USER
-    
-
-    # Pipe Stdin -> PSQL on EC2/RDS
     try:
         write_dump_to_tmpfile(bucket, key)
-            
-        _ = subprocess.call([
+        
+        # Use subprocess run
+        psql_exit_code = subprocess.run([
                 'psql', '-h', os.environ.get('PG_HOST'), 
                         '-d', os.environ.get('PG_DATABASE'), 
                         '-U', os.environ.get('PG_USER'),
                         '-f', '/tmp/f1.txt'
             ],
+            check=True,
         )
             
     except subprocess.CalledProcessError as err:
         log_handler(err)
-        return { 'statusCode': 500, 'body': json.dumps(err.__str__()) }
+        return { 
+            'statusCode': 500, 
+            'body': json.dumps(err.__str__()),
+            'CalledProcessCode': psql_exit_code,
+        }
 
     return {
             'statusCode': 200,
@@ -117,3 +132,4 @@ def handler(event, context):
                 }
             ),
         }
+

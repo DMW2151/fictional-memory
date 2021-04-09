@@ -1,6 +1,5 @@
-# Lambda Function -> Write PG_DUMP
-# Sample Event: 
-# 
+# Lambda Function to download, unzip, and write pg_dump file of geospatial source to S3
+# Sample Event:
 # {
 #     "body": {
 #       "layername": "Wy-Places",
@@ -30,7 +29,9 @@ logging.basicConfig(
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
+
 def log_handler(bytestream, level=None):
+    """ Logging utility, splits logstreams """
     if (bytestream == b'') or (bytestream is None):
         logger.info(b'Placeholder')
         return
@@ -41,10 +42,11 @@ def log_handler(bytestream, level=None):
 
 def parse_api_gateway_event(event_request):
     """
-    Wrapper for extracting POST body from the API Gateway Event.
-    Returns path (url of target) and layername (table name)
+    Wrapper for extracting content from POST body from
+    API Gateway Event. Returns path (url of target) and 
+    layername (table name)
 
-    - event_request: dict: API Gateway request body
+    - event_request: dict: API Gateway Request Event
     """
 
     # Extract POST body from event request
@@ -55,14 +57,12 @@ def parse_api_gateway_event(event_request):
 
 
 def s3_put_pgdump_object(sto, layername):
-
-    ## TODO: Error Check Here!!!
-    s_out = gzip.compress(sto)
+    """ Write stream of bytes to S3 """
 
     response = client.put_object(
         Bucket=os.environ.get('S3_DEFAULT_BUCKET'),
-        Body=s_out, 
         Key=f'test/{layername}.dump'
+        Body=gzip.compress(sto), 
     )
 
 
@@ -86,55 +86,51 @@ def handler(event, context):
             'body': json.dumps('Expect Values for `Path` and `Layername'),
         }
 
-    # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
-    
     # Call wget w. subprocess && download the target to /tmp/layer.zip
-    # NOTE: Test this w. many concurrent invocations!! Perhaps replace w.
-    # a generated tmpfile for each innvocation.
-    
     proc = subprocess.Popen(
         ["wget", path, "--verbose", "-O", "/tmp/layer.zip"],
         stdout=subprocess.PIPE,
     )
     
-    try:
-        # NOTE: /vsistdin/ should work here, not sure if wrong version of 
-        # ogr2ogr!?
-        dlps = subprocess.Popen([
-                'ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
-                '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
-                '-nln',     layername,
-                '-t_srs',   'EPSG:4326',
-                '-nlt',     'PROMOTE_TO_MULTI'],
-            stdin=proc.stdout,
-            stdout=subprocess.PIPE,
-        )
+    # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
+    # NOTE: /vsizip/vsistdin/ should work here, not sure if wrong version of 
+    # ogr2ogr; writing to /tmp/ isn't that bad though...
+    dlps = subprocess.Popen([
+            'ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
+            '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
+            '-nln',     layername,
+            '-t_srs',   'EPSG:4326',
+            '-nlt',     'PROMOTE_TO_MULTI'],
+        stdin=proc.stdout,
+        stdout=subprocess.PIPE,
+        bufsize=8192,
+    )
 
-        _, stderr = proc.communicate()
-    
-        # Catch Subprocess Call Errors (?), Can this even hapen??
-        if stderr:
-            log_handler(stderr)
-            return {
-                'statusCode': 500,
-                'body': json.dumps(stderr.__str__()),
-            }
-
-    except subprocess.CalledProcessError as err:
-        log_handler(err.__str__().encode('utf8'))
-        return {
-            'statusCode': 500,
-            'body': json.dumps(err.__str__()),
-        }
-            
-    dlsto, stderr = dlps.communicate()
-    s3_put_pgdump_object(dlsto, layername)
+    # Wait on wget process to complete before proceeding &&
+    # log errors from wget
+    _, stderr = proc.communicate()
     if stderr:
         log_handler(stderr)
         return {
             'statusCode': 500,
             'body': json.dumps(stderr.__str__()),
         }
+
+    # Wait on ogr2ogr process to complete before proceeding &&
+    # log errors from ogr2ogr
+    #
+    # WARNING: The data read is buffered in memory, so do not use this method 
+    # if the data size is large or unlimited. See the Docs! Careful when setting
+    # bufsize too large! `dlsto` has potential to be giant.
+    dlsto, stderr = dlps.communicate()    
+    if stderr:
+        log_handler(stderr)
+        return {
+            'statusCode': 500,
+            'body': json.dumps(stderr.__str__()),
+        }
+
+    s3_put_pgdump_object(dlsto, layername)
     
     return {
             'statusCode': 200,
