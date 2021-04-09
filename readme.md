@@ -64,9 +64,17 @@ docker run --rm \
     bash /layers/build_python_deps.sh
 ```
 
-
-
 ## Testing Locally with Docker
+
+```bash
+docker build \
+    -f ./wget_handler/Dockerfile \
+    -t dmw2151/wget-lambda .  
+
+docker build \
+    -f ./pg_restore_handler/Dockerfile \
+    -t dmw2151/pg-restore-lambda .
+```
 
 ## [WIP] Lambda Deployment
 
@@ -95,5 +103,3 @@ aws lambda create-function \
 - Not used, prefer `remotepixel/amazonlinux-gdal` container [CentOS GDAL, ogr2ogr, proj Install Guide](9https://gist.github.com/abelcallejo/e75eb93d73db6f163b076d0232fc7d7e) 
 - [Docker Container remotepixel/amazonlinux-gdal](https://hub.docker.com/r/remotepixel/amazonlinux-gdal)
 - [DevelopmentSeed GeoLambda - Good Reference on Building Layers](https://github.com/developmentseed/geolambda/blob/master/bin/package.sh)
-
-

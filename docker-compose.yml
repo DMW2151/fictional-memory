@@ -10,7 +10,6 @@ services:
       - "5432" # Allow other containers to call DB...
   
   wget_handler:
-    build: ./wget_handler_local/
     image: dmw2151/wget-lambda
     expose:
       - "9000"
@@ -18,10 +17,9 @@ services:
         - ~/.aws-lambda-rie:/aws-lambda
         - ./wget_handler/handler.py:/function/handler.py
     entrypoint: /aws-lambda/aws-lambda-rie
-    command: "/usr/local/bin/python -m awslambdaric wget_handler.handler"
+    command: "/usr/local/bin/python -m awslambdaric app.handler"
   
   pg_restore_handler:
-    build: ./pg_restore_handler/
     image: dmw2151/pg-restore-lambda
     expose:
       - "9000"
@@ -29,5 +27,5 @@ services:
         - ~/.aws-lambda-rie:/aws-lambda
         - ./pg_restore_handler/handler.py:/function/handler.py
     entrypoint: /aws-lambda/aws-lambda-rie
-    command: "/usr/local/bin/python -m awslambdaric pg_restore_handler.handler"
+    command: "/usr/local/bin/python -m awslambdaric app.handler"
               
