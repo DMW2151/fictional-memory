@@ -4,28 +4,43 @@ services:
   
   db:
     image: mdillon/postgis
-    environment:
-      - ./environment/db.env
+    env_file:
+      - ./local_testing/environment/db.env
     expose:
       - "5432" # Allow other containers to call DB...
   
   wget_handler:
+    # docker run -p 9000:8080  \
+    # -v $(pwd)/wget_handler/handler.py:/var/task/handler.py dmw2151/wget-lambda:latest handler.handler
     image: dmw2151/wget-lambda
-    expose:
-      - "9000"
+    ports:
+      - "9000:8080"
     volumes:
-        - ~/.aws-lambda-rie:/aws-lambda
-        - ./wget_handler/handler.py:/function/handler.py
-    entrypoint: /aws-lambda/aws-lambda-rie
-    command: "/usr/local/bin/python -m awslambdaric app.handler"
+      - ./wget_handler/handler.py:/var/task/handler.py
+    env_file:
+      - ./local_testing/environment/wget.env
+    links:
+      - "local_s3:s3"
+    command: handler.handler
+
+  local_s3:
+    image: lphoward/fake-s3
+    volumes:
+      - "./local_testing/fake_s3/:/fakes3_root/"
+    expose:
+      - "4569"
+    ports:
+      - "4569:4569"  
   
-  pg_restore_handler:
-    image: dmw2151/pg-restore-lambda
-    expose:
-      - "9000"
-    volumes:
-        - ~/.aws-lambda-rie:/aws-lambda
-        - ./pg_restore_handler/handler.py:/function/handler.py
-    entrypoint: /aws-lambda/aws-lambda-rie
-    command: "/usr/local/bin/python -m awslambdaric app.handler"
+  # pg_restore_handler:
+  #   image: dmw2151/pg-restore-lambda
+  #   expose:
+  #     - "9000"
+  #   ports:
+  #     - "8001:9000"
+  #   volumes:
+  #       - ~/.aws-lambda-rie:/aws-lambda
+  #       - ./pg_restore_handler/handler.py:/function/handler.py
+  #   entrypoint: /aws-lambda/aws-lambda-rie
+  #   command: "/usr/local/bin/python -m awslambdaric app.handler"
               

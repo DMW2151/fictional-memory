@@ -28,7 +28,7 @@ The layers used in this project are built in Amazon Linux Docker containers, see
 # required for download handler
 docker run --rm \
     --volume $(pwd)/built_layers/gdal:/gdal \
-    --volume $(pwd)/layers/:/layers/ \
+    --volume $(pwd)/deployment/layers/:/layers/ \
     remotepixel/amazonlinux-gdal \
     bash /layers/build_gdal.sh
 ```
@@ -38,7 +38,7 @@ docker run --rm \
 # required for restore layer
 docker run --rm \
     --volume $(pwd)/built_layers/pgclient:/pgclient \
-    --volume $(pwd)/layers/:/layers/ \
+    --volume $(pwd)/deployment/layers/:/layers/ \
     amazonlinux \
     bash /layers/build_psql.sh
 ```
@@ -48,7 +48,7 @@ docker run --rm \
 # mostly didactic, required for download handler
 docker run --rm \
     --volume $(pwd)/built_layers/utils:/utils \
-    --volume $(pwd)/layers/:/layers/ \
+    --volume $(pwd)/deployment/layers/:/layers/ \
     amazonlinux \
     bash /layers/build_utils.sh
 ```
@@ -59,14 +59,17 @@ docker run --rm \
 # awscli, boto3 included for other runtimes...
 docker run --rm \
     --volume $(pwd)/built_layers/pyutils:/pyutils \
-    --volume $(pwd)/layers/:/layers/ \
+    --volume $(pwd)/deployment/layers/:/layers/ \
     amazonlinux \
     bash /layers/build_python_deps.sh
 ```
 
 ## Testing Locally with Docker
 
+Run the `docker-compose.yml` file with `docker-compose up`, this does not allow for testing the whole system. In practice, we rely on AWS sending a notification to pg restore handler when wget handler finished. This compose allows you to test the wget handler locally at port 8000 and the restore handler at port 8001.
+
 ```bash
+# Run before Docker Build...
 docker build \
     -f ./wget_handler/Dockerfile \
     -t dmw2151/wget-lambda .  
@@ -74,7 +77,25 @@ docker build \
 docker build \
     -f ./pg_restore_handler/Dockerfile \
     -t dmw2151/pg-restore-lambda .
+
+docker-compose up
 ```
+
+### Wget - Configuring Fake S3
+
+
+### Wget - Test Request
+
+```bash
+curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d '{
+  "body": {
+    "layername": "GuamBlocks",
+    "path": "https://www2.census.gov/geo/tiger/TIGER2020/TABBLOCK/tl_2020_66_tabblock10.zip"
+  }
+}'
+```
+
+
 
 ## [WIP] Lambda Deployment
 

@@ -1,1 +1,6 @@
+# Exclude zipped .so files
 /built_layers/
+
+# Exclude Local S3
+/local_testing/fake_s3/**
+

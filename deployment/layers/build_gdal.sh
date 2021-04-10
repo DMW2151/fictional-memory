@@ -6,11 +6,14 @@
 yum upgrade -y &&\
     yum install -y binutils zip
 
-# Copy GDAL, OGR2OGR, and OGRINFO Binaries -> /gdal/bin
+# Copy GDAL, OGR2OGR, and OGRINFO Binaries -> /gdal/bin && some optional bins
 mkdir -p /gdal/bin /gdal/lib /gdal/share &&\
-    cp /var/task/bin/gdalinfo /gdal/bin/ &&\
-    cp /var/task/bin/ogrinfo /gdal/bin/ &&\
-    cp /var/task/bin/ogr2ogr /gdal/bin/
+    cp /var/task/bin/gdalinfo \
+    /var/task/bin/ogrinfo \
+    /var/task/bin/ogr2ogr \
+    /var/task/bin/proj \
+    /var/task/bin/projinfo \
+    /gdal/bin/
 
 # Copy Shared Libs -> /gdal/lib
 ldd /var/task/bin/gdalinfo |\
@@ -40,4 +43,3 @@ rsync -ax /var/task/share/proj /gdal/share/
 strip /gdal/lib/* || true
 
 cd /gdal/ && zip --symlinks -ruq lambda-gdal.zip ./
-```

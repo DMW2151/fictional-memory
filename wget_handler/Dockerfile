@@ -1,25 +1,22 @@
 # Boosted: https://pypi.org/project/awslambdaric/
 
-# Define custom function directory
-FROM amazonlinux
+# NOTE: Replacement for AWS Python Layer; Building from Source Instead of Deploying;
+# Might find another way to ensure that layer is doing what it needs to!!
+FROM public.ecr.aws/lambda/python:3.8
 
-ARG FUNCTION_DIR="/function"
+# for me, for debugging!
+RUN  yum -y update &&\
+  yum install -y unzip vim procps
 
-# Add Python3.8 to the Image
-RUN amazon-linux-extras install python3 epel -y &&\
-  yum -y update &&\
-  yum install zip -y &&\
-  yum groupinstall -y "Development Tools" &&\
-  curl -O "https://bootstrap.pypa.io/get-pip.py" &&\
-  python3 get-pip.py
+RUN pip install boto3 awscli
 
-# Copy handler function
-COPY ./wget_handler/ ${FUNCTION_DIR}/
+COPY ./built_layers/gdal/lambda-gdal.zip ./built_layers/utils/lambda-deploy.zip /
 
-COPY ./built_layers/gdal/lambda-gdal.zip ./built_layers/pyutils/aws-python-layer.zip ./built_layers/utils/lambda-deploy.zip  ./
-
-# Set working directory to function root directory
-WORKDIR ${FUNCTION_DIR}
-
-ENTRYPOINT [ "/usr/local/bin/python", "-m", "awslambdaric" ]
-CMD [ "app.handler" ]
+# Need wget -> usr/bin/wget, will get missing *.so files if ldconfig not run to refresh
+# libs
+RUN cd / &&\
+  unzip -o /lambda-gdal.zip &&\
+  unzip -o /lambda-deploy.zip &&\
+  /sbin/ldconfig
+   
+CMD ['handler.handler']

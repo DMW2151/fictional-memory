@@ -15,12 +15,6 @@ import os
 import subprocess
 import botocore.config
 
-# Initialize S3 Connection
-client = boto3.client(
-    's3', os.environ.get('AWS_DEFAULT_REGION'), 
-    config=botocore.config.Config(s3={'addressing_style':'path'})
-)
-
 # Initialize Loggers
 logging.basicConfig(
     format='%(asctime)s-%(levelname)s-%(message)s'
@@ -29,6 +23,21 @@ logging.basicConfig(
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
+def create_s3_client():
+    # Initialize S3 Connection
+    try:
+        client = boto3.client(
+            's3', os.environ.get('AWS_DEFAULT_REGION'), 
+            endpoint_url=os.environ.get('AWS_ENDPOINT_URL'),
+            config=botocore.config.Config(s3={'addressing_style':'path'})
+        )
+
+    except Exception as err:
+        logger.warning("Cannot Connect to S3\n", err)
+        return None
+
+    return client
+    
 
 def log_handler(bytestream, level=None):
     """ Logging utility, splits logstreams """
@@ -56,12 +65,12 @@ def parse_api_gateway_event(event_request):
     return path, layername
 
 
-def s3_put_pgdump_object(sto, layername):
+def s3_put_pgdump_object(client, sto, layername):
     """ Write stream of bytes to S3 """
 
     response = client.put_object(
         Bucket=os.environ.get('S3_DEFAULT_BUCKET'),
-        Key=f'test/{layername}.dump'
+        Key=f'test/{layername}.dump',
         Body=gzip.compress(sto), 
     )
 
@@ -86,53 +95,80 @@ def handler(event, context):
             'body': json.dumps('Expect Values for `Path` and `Layername'),
         }
 
+    client = create_s3_client()
+    if not client:
+        return {
+            'statusCode': 500,
+            'body': json.dumps('S3 Connect Failed'),
+        }
+
+
     # Call wget w. subprocess && download the target to /tmp/layer.zip
+    # NOTE: subprocess.Popen doesn't work in emulator without proc.wait()
     proc = subprocess.Popen(
         ["wget", path, "--verbose", "-O", "/tmp/layer.zip"],
         stdout=subprocess.PIPE,
     )
-    
+
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {
+                'statusCode': 500,
+                'body': json.dumps('Internal Status Error - Wget Timeout'),
+        }
+
     # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
-    # NOTE: /vsizip/vsistdin/ should work here, not sure if wrong version of 
-    # ogr2ogr; writing to /tmp/ isn't that bad though...
+    
+    # NOTE: /vsizip/vsistdin/ doesn't work in emulator, should work in 
+    # production. Not sure if wrong version of ogr2ogr?? writing to /tmp/ isn't
+    # that bad, leaving as /tmp/ write for now...
     dlps = subprocess.Popen([
             'ogr2ogr', '--config', 'PG_USE_COPY',  'YES',
             '-f', 'PGDump' , '/vsistdout/', '/vsizip//tmp/layer.zip',
             '-nln',     layername,
             '-t_srs',   'EPSG:4326',
             '-nlt',     'PROMOTE_TO_MULTI'],
-        stdin=proc.stdout,
         stdout=subprocess.PIPE,
-        bufsize=8192,
     )
 
     # Wait on wget process to complete before proceeding &&
     # log errors from wget
-    _, stderr = proc.communicate()
+    stdout, stderr = proc.communicate()
+    log_handler(stdout)
     if stderr:
         log_handler(stderr)
         return {
             'statusCode': 500,
-            'body': json.dumps(stderr.__str__()),
+            'body': json.dumps('Internal Status Error - Proc'),
         }
 
     # Wait on ogr2ogr process to complete before proceeding &&
     # log errors from ogr2ogr
-    #
+    
     # WARNING: The data read is buffered in memory, so do not use this method 
     # if the data size is large or unlimited. See the Docs! Careful when setting
     # bufsize too large! `dlsto` has potential to be giant.
-    dlsto, stderr = dlps.communicate()    
-    if stderr:
-        log_handler(stderr)
+
+    # NOTE: Don't bother with stderr on this one; proj spits out everything as an error 
+    # including failed fopen() calls that don't affect output...
+    
+    try:
+        dlsto, _ = dlps.communicate(timeout=5)
+        dlps.wait()  
+    except subprocess.TimeoutExpired:
+        dlps.kill()
         return {
-            'statusCode': 500,
-            'body': json.dumps(stderr.__str__()),
+                'statusCode': 500,
+                'body': json.dumps('Internal Status Error - Timeout'),
         }
 
-    s3_put_pgdump_object(dlsto, layername)
+
+    s3_put_pgdump_object(client, dlsto, layername)
     
     return {
             'statusCode': 200,
             'body': json.dumps({ 's3_path': f"{os.environ.get('S3_DEFAULT_BUCKET')}/test/{layername}.dump"}),
-        }
+    }
+
