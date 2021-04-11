@@ -6,18 +6,22 @@ import logging
 import os
 import subprocess
 import urllib.parse
+import tempfile
 
 import botocore.config
+import botocore.execeptions
 import boto3
 
-# Initialize S3 Connection
+# Initialize S3 connection with default region, addressing style + custom 
+# `endpoint_url` (for testing)
 s3 = boto3.resource(
-    's3', os.environ.get('AWS_DEFAULT_REGION'), 
+    's3', 
+    os.environ.get('AWS_DEFAULT_REGION'), 
     endpoint_url=os.environ.get('AWS_ENDPOINT_URL'),
     config=botocore.config.Config(s3={'addressing_style':'path'})
 )
 
-# Initialize Loggers
+# Initialize Default logger...
 logging.basicConfig(
     format='%(asctime)s-%(levelname)s-%(message)s'
 )
@@ -25,59 +29,84 @@ logging.basicConfig(
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-def log_handler(bytestream, level=None):
-    """ Logging utility, splits logstreams """
-    if (bytestream == b'') or (bytestream is None):
-        logger.info(b'Placeholder')
+
+def log_handler(logstream):
+    """
+    Logging utility, converts logs to str, splits into individual lines, 
+    and writes to logger
+    """
+
+    if type(logstream) == bytes:
+        logstream = logstream.decode('utf-8')
+
+    if logstream in ('', None):
         return
     
-    for logline in bytestream.split(b'\n'):
-        # TODO: Wouldn't a switch statement be nice? Implement pseudo-switch!
-        logger.info(logline)
+    # TODO: Wouldn't a switch statement be nice? Implement pseudo-switch later,
+    # for now, just check regex for `error` in the msg/line...
+    for logline in logstream.split():        
+        if re.search('error', logline, re.IGNORECASE):
+            logger.error(logline)
+        else:
+            logger.info(logline)
+        
 
 def parse_s3_trigger_event(event):
     """
-    Parse content of  AWS S3 Event to get key and bucket name for S3 download
+    Parse content of AWS S3 Event, return a key and bucket name 
+    for S3 download target
     """
-    bucket = event['Records'][0]['s3']['bucket']['name']
-    
-    key = urllib.parse.unquote_plus(
-        event['Records'][0]['s3']['object']['key'], 
-        encoding='utf-8'
-    )
 
-    if (bucket and key):
-        return bucket, key
+    try:
+        # NOTE: AWS Example/Docs here, only access the first record, assume that
+        # this is safe because events are ONLY coming from the S3 Trigger.
+        bucket = event['Records'][0]['s3']['bucket']['name']
+        
+        key = urllib.parse.unquote_plus(
+            event['Records'][0]['s3']['object']['key'], encoding='utf-8'
+        )
 
-    else:
+    # For local/dev testing, In case user sends bad mock-up of AWS S3 Event...
+    except (KeyError, IndexError) as err:
+        logger.error(err)
         return None, None
-    
+
+    return bucket, key
 
 def write_dump_to_tmpfile(bucket, key):
     """
-    Download S3 pg_dump file and save to /tmp/
+    Download pg_dump file from S3 and save to generated /tmp/ file
     """
 
-    ## Access S3 File; ensure exists before read
+    # Check for errors in AWS S3 Credential Errors, etc, making no 
+    # distinction which Botocore error is thrown, most often NoCredentials
     try:
         obj = s3.Object(bucket_name=bucket, key=key)
         b = obj.get()["Body"]
-        logger.info('Get', bucket, key)
-    ## Placeholder for errors in AWS S3 Credential Errors, etc.
-    except Exception as e:
-        logger.error(e) 
+
+    except (botocore.exceptions.BotoCoreError)  as e:
+        logger.error(e)
+        return None
         
-
-    # Write results from s3 -> /tmp/xxx.sql; decompressing
-    # while writing, 
-    with open("/tmp/layer.sql", 'wb+') as fd:
+    # Write results from s3 -> /tmp/xxx.sql; decompressing while writing, 
+    # use the os.open() to access bytes written instead of relying on higher 
+    # level open(). Checks for count b/c a file that's just b'' will not throw
+    # OSError
+    with tempfile.NamedTemporaryFile(suffix='.sql') as tmpf:
+        fd = os.open(tmpf.name, os.O_RDWR)    
         try:
-            fd.write(gzip.decompress(b.read()))
+            r = os.write(fd, gzip.decompress(b.read()))
+            if r > 0:
+                return tmpfp.name
+            else:
+                logger.error('No Bytes Written...')
+                return None
 
-        # Placeholder for errors, might run into invalid 
-        # gzip file, file might not be available, etc...
-        except: 
-            raise NotImplementedError
+        # Typically thrown for non-gzipped file, e.g. if b.read() gives 
+        # b'I am Not A GZIP', gzip  throws OSError
+        except OSError as err: 
+            logger.error(err)            
+            return None
 
 
 def handler(event, context):
@@ -97,31 +126,33 @@ def handler(event, context):
             'statusCode': 422,
             'body': json.dumps('Expect AWS S3 Event Request'),
         }
-    
 
-    # Download the pg_dump file and stream through gzip and then to psql
-    # Equiv. Call...    
+    # TODO: Should be able to refactor this to stream w.o write to /tmp/
+    # Download the and gunzizp pg_dump file to file and then write to psql
     # aws s3 cp s3://sample_bucket/test/sample.dump - |\
-    #   gunzip - |\
-    #   psql -h $PG_HOST -d $PG_DATABASE -U $PG_USER
+    #   psql -h $PG_HOST -d $PG_DATABASE -U $PG_USER -f file.sql
     try:
-        write_dump_to_tmpfile(bucket, key)
-        
-        # Use subprocess run
+        restore_fp = write_dump_to_tmpfile(bucket, key)
+        if not restore_fp:
+            return {
+                'statusCode': 500,
+                'body': json.dumps('Failed to Create File...'),
+            }
+         
+        # Use subprocess check_call to wait on execution of pg_restore
         psql_exit_code = subprocess.check_call([
                 'psql', '-h', os.environ.get('PG_HOST'), 
                         '-d', os.environ.get('PG_DATABASE'), 
                         '-U', os.environ.get('PG_USER'),
-                        '-f', '/tmp/layer.sql'
+                        '-f', restore_fp,
             ]
         )
             
     except subprocess.CalledProcessError as err:
-        log_handler(err.__str__().encode('utf-8'))
+        log_handler(err.__str__())
         return { 
             'statusCode': 500, 
-            'body': json.dumps(err.__str__().encode('utf-8')),
-            'CalledProcessCode': psql_exit_code,
+            'body': json.dumps(err.__str__()),
         }
 
     return {
