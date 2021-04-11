@@ -93,6 +93,9 @@ curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d
     "path": "https://www2.census.gov/geo/tiger/TIGER2020/TABBLOCK/tl_2020_66_tabblock10.zip"
   }
 }'
+
+
+curl -XPOST  --data "@./test/requests/guam.json" "http://localhost:9001/2015-03-31/functions/function/invocations"
 ```
 
 

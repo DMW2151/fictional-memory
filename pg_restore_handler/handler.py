@@ -13,6 +13,7 @@ import boto3
 # Initialize S3 Connection
 s3 = boto3.resource(
     's3', os.environ.get('AWS_DEFAULT_REGION'), 
+    endpoint_url=os.environ.get('AWS_ENDPOINT_URL'),
     config=botocore.config.Config(s3={'addressing_style':'path'})
 )
 
@@ -22,7 +23,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 def log_handler(bytestream, level=None):
     """ Logging utility, splits logstreams """
@@ -59,13 +60,13 @@ def write_dump_to_tmpfile(bucket, key):
 
     ## Access S3 File; ensure exists before read
     try:
-        obj = s3.Object(
-            bucket_name=bucket, key=key
-        )
+        obj = s3.Object(bucket_name=bucket, key=key)
         b = obj.get()["Body"]
-    ## Placeholder for errors in AWS S3 Get/Credential Errors, etc.
-     except: 
-        raise NotImplementedError
+        logger.info('Get', bucket, key)
+    ## Placeholder for errors in AWS S3 Credential Errors, etc.
+    except Exception as e:
+        logger.error(e) 
+        
 
     # Write results from s3 -> /tmp/xxx.sql; decompressing
     # while writing, 
@@ -107,20 +108,19 @@ def handler(event, context):
         write_dump_to_tmpfile(bucket, key)
         
         # Use subprocess run
-        psql_exit_code = subprocess.run([
+        psql_exit_code = subprocess.check_call([
                 'psql', '-h', os.environ.get('PG_HOST'), 
                         '-d', os.environ.get('PG_DATABASE'), 
                         '-U', os.environ.get('PG_USER'),
-                        '-f', '/tmp/f1.txt'
-            ],
-            check=True,
+                        '-f', '/tmp/layer.sql'
+            ]
         )
             
     except subprocess.CalledProcessError as err:
-        log_handler(err)
+        log_handler(err.__str__().encode('utf-8'))
         return { 
             'statusCode': 500, 
-            'body': json.dumps(err.__str__()),
+            'body': json.dumps(err.__str__().encode('utf-8')),
             'CalledProcessCode': psql_exit_code,
         }
 

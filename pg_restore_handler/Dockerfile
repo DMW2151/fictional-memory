@@ -1,19 +1,24 @@
 # Boosted: https://pypi.org/project/awslambdaric/
 
 # Define custom function directory
-FROM python:3.8-buster as build-image
+FROM public.ecr.aws/lambda/python:3.8
 
-ARG FUNCTION_DIR="/function"
+# for me, for debugging!
+RUN  yum -y update &&\
+  yum install -y \
+    unzip \
+    vim \
+    procps
 
-# Copy handler function
-COPY pg_restore_handler/ ${FUNCTION_DIR}/
+RUN pip install boto3 awscli
 
-COPY built_layers/gdal/lambda-gdal.zip \
-  built_layers/pyutils/aws-python-layer.zip \
-  built_layers/utils/lambda-deploy.zip  ./
+COPY ./built_layers/pgclient/lambda-psql.zip ./built_layers/pyutils/aws-python-layer.zip /
 
-# Set working directory to function root directory
-WORKDIR ${FUNCTION_DIR}
-
-ENTRYPOINT [ "/usr/local/bin/python", "-m", "awslambdaric" ]
-CMD [ "app.handler" ]
+# Need wget -> usr/bin/wget, will get missing *.so files if ldconfig not run to refresh
+# libs
+RUN cd / &&\
+  unzip -o /lambda-psql.zip &&\
+  unzip -o /aws-python-layer.zip &&\
+  /sbin/ldconfig
+   
+CMD ['handler.handler']

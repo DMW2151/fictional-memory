@@ -2,5 +2,5 @@
 /built_layers/
 
 # Exclude Local S3
-/local_testing/fake_s3/**
+/test/fake_s3/**
 

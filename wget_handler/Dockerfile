@@ -6,7 +6,10 @@ FROM public.ecr.aws/lambda/python:3.8
 
 # for me, for debugging!
 RUN  yum -y update &&\
-  yum install -y unzip vim procps
+  yum install -y \
+    unzip \
+    vim \ 
+    procps
 
 RUN pip install boto3 awscli
 
