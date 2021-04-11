@@ -7,9 +7,10 @@ import os
 import subprocess
 import urllib.parse
 import tempfile
+import re
 
 import botocore.config
-import botocore.execeptions
+#import botocore.execeptions
 import boto3
 
 # Initialize S3 connection with default region, addressing style + custom 
@@ -84,20 +85,22 @@ def write_dump_to_tmpfile(bucket, key):
         obj = s3.Object(bucket_name=bucket, key=key)
         b = obj.get()["Body"]
 
-    except (botocore.exceptions.BotoCoreError)  as e:
-        logger.error(e)
+    except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError)  as e:
+        logger.critical(e)
         return None
+    
+    
         
     # Write results from s3 -> /tmp/xxx.sql; decompressing while writing, 
     # use the os.open() to access bytes written instead of relying on higher 
     # level open(). Checks for count b/c a file that's just b'' will not throw
     # OSError
-    with tempfile.NamedTemporaryFile(suffix='.sql') as tmpf:
+    with tempfile.NamedTemporaryFile(suffix='.sql', delete=False) as tmpf:
         fd = os.open(tmpf.name, os.O_RDWR)    
         try:
             r = os.write(fd, gzip.decompress(b.read()))
             if r > 0:
-                return tmpfp.name
+                return tmpf.name
             else:
                 logger.error('No Bytes Written...')
                 return None
@@ -119,9 +122,9 @@ def handler(event, context):
         the invocation, function, and execution environment.
     """
     
+    # Return bad request - caller is missing at least one required param
     bucket, key = parse_s3_trigger_event(event)
     if not (bucket and key):
-        # Return bad request - caller is missing at least one required param
         return {
             'statusCode': 422,
             'body': json.dumps('Expect AWS S3 Event Request'),
@@ -129,22 +132,22 @@ def handler(event, context):
 
     # TODO: Should be able to refactor this to stream w.o write to /tmp/
     # Download the and gunzizp pg_dump file to file and then write to psql
+    #
     # aws s3 cp s3://sample_bucket/test/sample.dump - |\
     #   psql -h $PG_HOST -d $PG_DATABASE -U $PG_USER -f file.sql
-    try:
-        restore_fp = write_dump_to_tmpfile(bucket, key)
-        if not restore_fp:
-            return {
-                'statusCode': 500,
-                'body': json.dumps('Failed to Create File...'),
-            }
+    #
+    # Use subprocess check_call to wait on execution of pg_restore
+    restore_fp = write_dump_to_tmpfile(bucket, key)
+    if not restore_fp:
+        return {
+            'statusCode': 500,
+            'body': json.dumps('Failed to Create File...'),
+        }
          
-        # Use subprocess check_call to wait on execution of pg_restore
+    try:
+        print(os.listdir('/tmp/'))
         psql_exit_code = subprocess.check_call([
-                'psql', '-h', os.environ.get('PG_HOST'), 
-                        '-d', os.environ.get('PG_DATABASE'), 
-                        '-U', os.environ.get('PG_USER'),
-                        '-f', restore_fp,
+                'psql', '-h', os.environ.get('PG_HOST'), '-d', os.environ.get('PG_DATABASE'), '-U', os.environ.get('PG_USER'), '-f', restore_fp,
             ]
         )
             

@@ -10,7 +10,11 @@ RUN  yum -y update &&\
     vim \
     procps
 
-RUN pip install boto3 awscli
+RUN pip install \
+  boto3 \
+  awscli \
+  requests \
+  pytest
 
 COPY ./built_layers/pgclient/lambda-psql.zip ./built_layers/pyutils/aws-python-layer.zip /
 

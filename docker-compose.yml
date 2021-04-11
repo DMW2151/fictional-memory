@@ -23,6 +23,7 @@ services:
       - db
     volumes:
         - ./pg_restore_handler/handler.py:/var/task/handler.py
+        - ./test/pg_restore_handler/:/var/task
     env_file:
       - ./test/environment/restore.env
     command: handler.handler
@@ -30,7 +31,7 @@ services:
   s3:
     image: lphoward/fake-s3
     volumes:
-      - "./test/fake_s3/:/fakes3_root/"
+      - "./test/s3volume/:/fakes3_root/"
     expose:
       - "4569"
     ports: # Optional mapping to host for local testing

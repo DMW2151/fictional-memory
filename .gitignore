@@ -1,6 +1,10 @@
 # Exclude zipped .so files
-/built_layers/
+/deployment/built_layers/
 
 # Exclude Local S3
-/test/fake_s3/**
+/test/s3volume/**
+!/test/s3volume/s3/dmw2151-placeholder/test
+
+*.pyc
+*.pyo
 

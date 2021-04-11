@@ -42,7 +42,7 @@ def create_s3_client():
 def log_handler(bytestream, level=None):
     """ Logging utility, splits logstreams """
     if (bytestream == b'') or (bytestream is None):
-        logger.info(b'Placeholder')
+        logger.info('Placeholder')
         return
     
     for logline in bytestream.split(b'\n'):
@@ -120,7 +120,6 @@ def handler(event, context):
         }
 
     # Transform /tmp/layer.zip to a PG_DUMP push the gzip result to S3
-    
     # NOTE: /vsizip/vsistdin/ doesn't work in emulator, should work in 
     # production. Not sure if wrong version of ogr2ogr?? writing to /tmp/ isn't
     # that bad, leaving as /tmp/ write for now...
